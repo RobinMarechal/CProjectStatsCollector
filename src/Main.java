@@ -43,6 +43,8 @@ public class Main extends Application
     private static List<File> instanceFiles;
     private static List<File> configFiles;
 
+    private static int remainingTime;
+
     public static void main (String[] args)
     {
         launch(args);
@@ -57,12 +59,11 @@ public class Main extends Application
 
         OS = System.getProperty("os.name").toLowerCase();
         dirSep = File.separator;
-        outputSuffix = "_" + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddhhmmss")) + ".txt";
+        final LocalDateTime now = LocalDateTime.now();
+        outputSuffix = "_" + now.format(DateTimeFormatter.ofPattern("yyyyMMddhhmmss")) + ".txt";
         dataFilesFolderPath = dirPath + dirSep + "data" + dirSep + "for_java" + dirSep;
         configsFolderPath = dirPath + dirSep + "configs";
 
-        // Tests
-        //        dataFilesFolderPath += "test" + dirSep;
         File configsFolder = new File(configsFolderPath);
 
 
@@ -119,54 +120,78 @@ public class Main extends Application
 
         configFiles = Arrays.stream(configs).sorted(File::compareTo).collect(Collectors.toList());
 
+        nbThreads = OS.contains("win") ? 1 : 2;
+
+        long startTime = System.currentTimeMillis();
 
         if (whichProgram == Which.BOTH) {
             System.out.println("Running C then Python");
-            System.out.println("Estimated max time : " + estimateMaxTimeString(instanceFiles, configFiles.size() * 2));
+            calcBaseRemainingTime(2);
             run(false);
             run(true);
         }
         else if (whichProgram == Which.PYTHON) {
             System.out.println("Running Python only");
-            System.out.println("Estimated max time : " + estimateMaxTimeString(instanceFiles, configFiles.size()));
+            calcBaseRemainingTime(1);
             run(true);
         }
         else if (whichProgram == Which.C) {
             System.out.println("Running C only");
-            System.out.println("Estimated max time : " + estimateMaxTimeString(instanceFiles, configFiles.size()));
+            calcBaseRemainingTime(1);
             run(false);
         }
 
+        long endTime = System.currentTimeMillis();
+
+        int timePassedSeconds = (int) (startTime - endTime) / 1000;
+
+        System.out.println();
+        System.out.println("Actual execution time : " + getTimeString(timePassedSeconds));
+        System.out.println();
+        
         System.exit(0);
     }
 
-    private String estimateMaxTimeString (List<File> instances, int nbConfigs)
+    private void calcBaseRemainingTime (int nb)
     {
-        int time = 0;
-        for (File instance : instances) {
-            String   fileName   = instance.getName();
-            String[] split      = fileName.split("_");
-            int      nbMachines = Integer.parseInt(split[2]);
-            int      nbJobs     = Integer.parseInt(split[3]);
+        int nbConfigs = configFiles.size();
 
-            time += nbJobs * nbMachines;
+        for (File inst : instanceFiles) {
+            String fileName        = inst.getName();
+            String fileNameParts[] = fileName.split("_");
+            int    nbMachines      = Integer.parseInt(fileNameParts[2]);
+            int    nbJobs          = Integer.parseInt(fileNameParts[3]);
+
+            // The time calculated in the C program
+            remainingTime += nbJobs * nbMachines / 4;
         }
 
-        time *= nbConfigs;
-        time /= 4;
+        // each file is processed for each config, for (Python && C) or (Python) or (C), nbTurns each, but with nbThreads threads
+        remainingTime = remainingTime * nbConfigs * nb * nbTurns / nbThreads;
+    }
 
-        int nbHours = time / 3600;
-        time -= nbHours * 3600;
-        int nbMinutes = time / 60;
-        time -= nbMinutes * 60;
-        int nbSeconds = time;
+    private String getTimeString (int nbSeconds)
+    {
+        int nbHours = nbSeconds / 3600;
+        nbSeconds -= nbHours * 3600;
+        int nbMinutes = nbSeconds / 60;
+        nbSeconds -= nbMinutes * 60;
 
         return String.format("%dH %dmin %ds", nbHours, nbMinutes, nbSeconds);
     }
 
+    private void updateRemainingTime (File instance)
+    {
+        String fileName        = instance.getName();
+        String fileNameParts[] = fileName.split("_");
+        int    nbMachines      = Integer.parseInt(fileNameParts[2]);
+        int    nbJobs          = Integer.parseInt(fileNameParts[3]);
+
+        remainingTime -= nbJobs * nbMachines / 4 * (3 - nbThreads);
+    }
+
     private void run (boolean python) throws IOException
     {
-        System.exit(0);
         String outputFileName;
 
         if (python) {
@@ -192,9 +217,6 @@ public class Main extends Application
         String outputFilePath = dirPath + dirSep + "stats" + dirSep + outputFileName;
 
         outputFilePath += outputSuffix;
-
-        // Test
-        //        configsFolderPath += dirSep + "test";
 
         System.out.println();
         System.out.println("Testing " + (python ? "Python" : "C") + " program");
@@ -247,6 +269,12 @@ public class Main extends Application
     {
         System.out.println("Instance : " + file.getName());
         System.out.println("Config : " + config.getName());
+
+        updateRemainingTime(file);
+
+        //        System.out.println();
+        System.out.println("Estimated max remaining time : " + getTimeString(remainingTime));
+        //        System.out.println();
 
         String format = "{{value}}\t{{time}}\t{{nbIt}}\t{{file}}\n";
 
@@ -351,4 +379,3 @@ public class Main extends Application
         dirPath = dir.getAbsolutePath();
     }
 }
-
