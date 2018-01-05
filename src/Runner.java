@@ -1,4 +1,3 @@
-import java.io.IOException;
 import java.io.InputStream;
 import java.util.Scanner;
 import java.util.concurrent.Callable;
@@ -22,11 +21,16 @@ public class Runner implements Callable<Solution>
     public Solution call () throws Exception
     {
         ProcessBuilder pb;
+        String args[];
 
-        if(this.python)
-            pb = new ProcessBuilder("python3", exePath, instancePath, configsPath);
-        else
-            pb = new ProcessBuilder(exePath, instancePath, configsPath);
+        if (this.python) {
+            args = new String[]{"python3", exePath, "-i", instancePath, "-c", configsPath, "-dp"};
+        }
+        else {
+            args = new String[]{exePath, "-i", instancePath, "-c", configsPath, "-dp"};
+        }
+
+        pb = new ProcessBuilder(args);
 
         try {
             Process process = pb.start();
@@ -42,25 +46,19 @@ public class Runner implements Callable<Solution>
 
             int exitValue = process.waitFor();
 
-            System.out.println("Thread" + Thread.currentThread().getId() + " : " + exitValue + " - " + lastLine);
-
             String[] parts = lastLine.split("\t");
 
             int    score = Integer.parseInt(parts[0]);
             double time  = Double.parseDouble(parts[1].split(" ")[0]);
             int    nbIt  = Integer.parseInt(parts[2].split(" ")[0]);
 
-//            System.out.format("Thread %d\t->\t%d\t%.4f\t%d", Thread.currentThread().getId(), score, time, nbIt);
+            System.out.printf("Thread%d : %d - %d\t%.2f s\t%d iterations\n", Thread.currentThread().getId(), exitValue, score, time, nbIt);
 
             return new Solution(score, time, nbIt);
         }
-        catch (IOException e) {
+        catch (Exception e) {
             e.printStackTrace();
         }
-        catch (InterruptedException e) {
-            e.printStackTrace();
-        }
-
 
         return null;
     }

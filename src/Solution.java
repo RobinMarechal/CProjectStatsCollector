@@ -6,11 +6,9 @@ public class Solution
 
     public Solution (int score, double time, int nbIt)
     {
-
         this.score = score;
         this.time = time;
         this.nbIt = nbIt;
-
     }
 
     public int getScore ()

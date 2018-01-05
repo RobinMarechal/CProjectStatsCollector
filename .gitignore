@@ -2,6 +2,8 @@
 out/
 *.iml
 
+output.txt
+output_py.txt
 
 # Compiled class file
 *.class

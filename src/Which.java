@@ -1,5 +1,6 @@
-package PACKAGE_NAME;
-
 public enum Which
 {
+    PYTHON,
+    C,
+    BOTH
 }

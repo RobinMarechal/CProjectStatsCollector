@@ -5,7 +5,6 @@ import javafx.scene.control.Button;
 import javafx.scene.layout.HBox;
 import javafx.stage.DirectoryChooser;
 import javafx.stage.Stage;
-import javafx.stage.StageStyle;
 
 import java.io.BufferedWriter;
 import java.io.File;
@@ -22,19 +21,23 @@ import java.util.stream.Collectors;
 
 public class Main extends Application
 {
-    private static int nbTurns = 4;
-    private static int nbThreads = 2;
+    private static int nbTurns = 2;
+    private static int nbThreads = 1;
     private static String dirPath;
     private static String exePath;
     private static String dataFilesFolderPath;
     private static String outputFilePath;
     private static String fileNameRegexp = "I(_\\d{1,3}){4}\\.txt";
     private static String configsFolderPath;
+    private static String outputSuffix;
 
-    private static boolean python = false;
+    private static Which whichProgram = Which.C;
 
     private static File output = null;
     private static BufferedWriter writer = null;
+
+    private static String OS;
+    private static String dirSep;
 
     public static void main (String[] args) throws IOException
     {
@@ -48,12 +51,35 @@ public class Main extends Application
         askForProjectDir(windows);
         askForPythonOrC();
 
-        final String OS     = System.getProperty("os.name").toLowerCase();
-        final String dirSep = File.separator;
-        String       outputFileName;
+        OS = System.getProperty("os.name").toLowerCase();
+        dirSep = File.separator;
+        outputSuffix = "_" + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddhhmmss")) + ".txt";
+        dataFilesFolderPath = dirPath + dirSep + "data" + dirSep + "for_java" + dirSep;
 
+        // Tests
+        dataFilesFolderPath += "test" + dirSep;
 
-        dataFilesFolderPath = dirPath + dirSep + "data" + dirSep;
+        if (whichProgram == Which.BOTH) {
+            System.out.println("Running C then Python");
+            run(false);
+            run(true);
+        }
+        else if (whichProgram == Which.PYTHON) {
+            System.out.println("Running Python only");
+            run(true);
+        }
+        else if (whichProgram == Which.C) {
+            System.out.println("Running C only");
+            run(false);
+        }
+
+        System.exit(0);
+    }
+
+    public void run (boolean python) throws IOException
+    {
+
+        String outputFileName;
 
         if (python) {
             exePath = dirPath + dirSep + "tabu_python.py";
@@ -77,18 +103,20 @@ public class Main extends Application
 
         outputFilePath = dirPath + dirSep + "stats" + dirSep + outputFileName;
 
-        outputFilePath += "_" + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddhhmmss")) + ".txt";
+        outputFilePath += outputSuffix;
         configsFolderPath = dirPath + dirSep + "configs";
 
+        // Test
+        configsFolderPath += dirSep + "test";
+
         System.out.println();
-        System.out.println("Testing " + (python ? "python" : "C") + " program");
+        System.out.println("Testing " + (python ? "Python" : "C") + " program");
         System.out.println("Exe file : " + exePath);
         System.out.println("Instances folder : " + dataFilesFolderPath);
         System.out.println("Ouput file : " + outputFilePath);
         System.out.println("Configs folder : " + configsFolderPath);
         System.out.println();
 
-        System.exit(0);
 
         File dataFolder = new File(dataFilesFolderPath);
 
@@ -137,15 +165,12 @@ public class Main extends Application
         File[]     configs     = configsFolder.listFiles();
         List<File> configsList = Arrays.asList(configs).stream().sorted(File::compareTo).collect(Collectors.toList());
 
-        //        for (File file : fileList) {
-        //            System.out.println(file.getName());
-        //        }
-
         List<File> testSubList = fileList;
 
         System.out.println();
         System.out.println("Starting...");
         System.out.println(nbTurns + " runs for " + testSubList.size() + " instances");
+        System.out.println(nbThreads + " threads");
         System.out.println();
 
         output = new File(outputFilePath);
@@ -159,20 +184,34 @@ public class Main extends Application
             output.createNewFile();
         }
 
-        testSubList.forEach(input -> configsList.forEach(config -> runForInstanceFile(input, config)));
+        testSubList.forEach(input -> {
+            writeToOutput(input.getName() + "\n");
+            configsList.forEach(config -> runForInstanceFile(input, config, python));
+            writeToOutput("\n");
+        });
+    }
 
-        System.exit(0);
+    public void writeToOutput (String line)
+    {
+        try {
+            writer = new BufferedWriter(new FileWriter(output, true));
+            writer.append(line);
+            writer.close();
+        }
+        catch (IOException e) {
+            System.out.println("Failed to write to output file : \n\t" + line);
+        }
     }
 
 
-    public static void runForInstanceFile (File file, File config)
+    public void runForInstanceFile (File file, File config, boolean python)
     {
-        System.out.println("Running for instance '" + file.getName() + "'");
-        String format = "{{file}}\t{{value}}\t{{time}}\t{{nbIt}}";
+        System.out.println("Instance : " + file.getName());
+        System.out.println("Config : " + config.getName());
+
+        String format = "{{value}}\t{{time}}\t{{nbIt}}\t{{file}}\n";
 
         try {
-            writer = new BufferedWriter(new FileWriter(output, true));
-
             ExecutorService          executor = Executors.newFixedThreadPool(nbThreads);
             List<Callable<Solution>> tasks    = new ArrayList<>();
             List<Future<Solution>>   futures;
@@ -210,18 +249,14 @@ public class Main extends Application
             double avgTime = totalTime / (double) nbEquals;
             int    avgNbIt = (int) (totalNbIt / (double) nbEquals);
 
-            String line = format.replace("{{file}}", file.getName())
+            String line = format.replace("{{file}}", config.getName())
                                 .replace("{{value}}", score + "")
                                 .replace("{{time}}", String.format("%.2f", avgTime))
                                 .replace("{{nbIt}}", avgNbIt + "");
 
             System.out.println("\t-> " + line);
             System.out.println();
-            writer.append(line + "\n");
-            writer.close();
-        }
-        catch (IOException e) {
-            e.printStackTrace();
+            writeToOutput(line);
         }
         catch (InterruptedException e) {
             e.printStackTrace();
@@ -234,32 +269,39 @@ public class Main extends Application
 
     private void askForPythonOrC ()
     {
-        Stage  stage = new Stage(StageStyle.UTILITY);
-        Button cBtn  = new Button("C");
-        Button pyBtn = new Button("Python");
-        HBox   hbox  = new HBox(20, cBtn, pyBtn);
+        Stage  stage   = new Stage();
+        Button cBtn    = new Button("C");
+        Button pyBtn   = new Button("Python");
+        Button bothBtn = new Button("Both");
+        HBox   hbox    = new HBox(20, cBtn, pyBtn, bothBtn);
 
         stage.setTitle("Select the program to run");
         hbox.setPadding(new Insets(20));
         cBtn.setPrefWidth(100);
         pyBtn.setPrefWidth(100);
+        bothBtn.setPrefWidth(100);
 
         stage.setScene(new Scene(hbox));
 
         cBtn.setOnAction(event -> {
-            python = false;
+            whichProgram = Which.C;
             stage.close();
         });
 
         pyBtn.setOnAction(event -> {
-            python = true;
+            whichProgram = Which.PYTHON;
+            stage.close();
+        });
+
+        bothBtn.setOnAction(event -> {
+            whichProgram = Which.BOTH;
             stage.close();
         });
 
         stage.showAndWait();
     }
 
-    public static void askForProjectDir (Stage mainWindows)
+    public void askForProjectDir (Stage mainWindows)
     {
         DirectoryChooser chooser = new DirectoryChooser();
         chooser.setTitle("Open Project Folder");
