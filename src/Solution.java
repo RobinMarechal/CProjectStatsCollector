@@ -4,7 +4,7 @@ public class Solution
     private final double time;
     private final int nbIt;
 
-    public Solution (int score, double time, int nbIt)
+    Solution (int score, double time, int nbIt)
     {
         this.score = score;
         this.time = time;

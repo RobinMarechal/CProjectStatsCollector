@@ -9,7 +9,7 @@ public class Runner implements Callable<Solution>
     private final String instancePath;
     private final String configsPath;
 
-    public Runner (boolean python, String exePath, String instancePath, String configsPath)
+    Runner (boolean python, String exePath, String instancePath, String configsPath)
     {
         this.python = python;
         this.exePath = exePath;
@@ -18,7 +18,7 @@ public class Runner implements Callable<Solution>
     }
 
     @Override
-    public Solution call () throws Exception
+    public Solution call ()
     {
         ProcessBuilder pb;
         String args[];

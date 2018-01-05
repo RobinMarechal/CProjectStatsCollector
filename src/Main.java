@@ -16,7 +16,10 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
-import java.util.concurrent.*;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.stream.Collectors;
 
 public class Main extends Application
@@ -26,20 +29,21 @@ public class Main extends Application
     private static String dirPath;
     private static String exePath;
     private static String dataFilesFolderPath;
-    private static String outputFilePath;
     private static String fileNameRegexp = "I(_\\d{1,3}){4}\\.txt";
-    private static String configsFolderPath;
     private static String outputSuffix;
+    private static String configsFolderPath;
 
     private static Which whichProgram = Which.C;
 
     private static File output = null;
-    private static BufferedWriter writer = null;
 
     private static String OS;
     private static String dirSep;
 
-    public static void main (String[] args) throws IOException
+    private static List<File> instanceFiles;
+    private static List<File> configFiles;
+
+    public static void main (String[] args)
     {
         launch(args);
     }
@@ -55,76 +59,10 @@ public class Main extends Application
         dirSep = File.separator;
         outputSuffix = "_" + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddhhmmss")) + ".txt";
         dataFilesFolderPath = dirPath + dirSep + "data" + dirSep + "for_java" + dirSep;
-
-        // Tests
-        dataFilesFolderPath += "test" + dirSep;
-
-        if (whichProgram == Which.BOTH) {
-            System.out.println("Running C then Python");
-            run(false);
-            run(true);
-        }
-        else if (whichProgram == Which.PYTHON) {
-            System.out.println("Running Python only");
-            run(true);
-        }
-        else if (whichProgram == Which.C) {
-            System.out.println("Running C only");
-            run(false);
-        }
-
-        System.exit(0);
-    }
-
-    public void run (boolean python) throws IOException
-    {
-
-        String outputFileName;
-
-        if (python) {
-            exePath = dirPath + dirSep + "tabu_python.py";
-            outputFileName = "py_";
-        }
-        else {
-            outputFileName = "c_";
-
-            exePath = dirPath + dirSep + "bin" + dirSep + "app" + dirSep + "Release" + dirSep + "DI4_ProjectC";
-        }
-
-        if (OS.indexOf("win") >= 0) {
-            if (!python) {
-                exePath += ".exe";
-            }
-            outputFileName += "win";
-        }
-        else {
-            outputFileName += "linux";
-        }
-
-        outputFilePath = dirPath + dirSep + "stats" + dirSep + outputFileName;
-
-        outputFilePath += outputSuffix;
         configsFolderPath = dirPath + dirSep + "configs";
 
-        // Test
-        configsFolderPath += dirSep + "test";
-
-        System.out.println();
-        System.out.println("Testing " + (python ? "Python" : "C") + " program");
-        System.out.println("Exe file : " + exePath);
-        System.out.println("Instances folder : " + dataFilesFolderPath);
-        System.out.println("Ouput file : " + outputFilePath);
-        System.out.println("Configs folder : " + configsFolderPath);
-        System.out.println();
-
-
-        File dataFolder = new File(dataFilesFolderPath);
-
-        if (!dataFolder.exists() || !dataFolder.isDirectory()) {
-            System.out.println("Error: data folder doesn't exist...");
-            System.exit(1);
-        }
-
+        // Tests
+        //        dataFilesFolderPath += "test" + dirSep;
         File configsFolder = new File(configsFolderPath);
 
 
@@ -155,46 +93,147 @@ public class Main extends Application
             }
         };
 
-        File[] files = dataFolder.listFiles();
-        List<File> fileList = Arrays.asList(files)
-                                    .stream()
-                                    .filter(file -> file.getName().matches(fileNameRegexp))
-                                    .sorted(fileNameComparator)
-                                    .collect(Collectors.toList());
 
-        File[]     configs     = configsFolder.listFiles();
-        List<File> configsList = Arrays.asList(configs).stream().sorted(File::compareTo).collect(Collectors.toList());
+        File dataFolder = new File(dataFilesFolderPath);
 
-        List<File> testSubList = fileList;
+        if (!dataFolder.exists() || !dataFolder.isDirectory()) {
+            System.out.println("Error: data folder doesn't exist...");
+            System.exit(1);
+        }
+
+        File[] files = dataFolder.listFiles(File::isFile);
+
+        if (files == null) {
+            System.out.println("Failed to get instance files...");
+            System.exit(1);
+        }
+
+        instanceFiles = Arrays.stream(files).filter(file -> file.getName().matches(fileNameRegexp)).sorted(fileNameComparator).collect(Collectors.toList());
+
+        File[] configs = configsFolder.listFiles(File::isFile);
+
+        if (configs == null) {
+            System.out.println("Failed to get config files...");
+            System.exit(1);
+        }
+
+        configFiles = Arrays.stream(configs).sorted(File::compareTo).collect(Collectors.toList());
+
+
+        if (whichProgram == Which.BOTH) {
+            System.out.println("Running C then Python");
+            System.out.println("Estimated max time : " + estimateMaxTimeString(instanceFiles, configFiles.size() * 2));
+            run(false);
+            run(true);
+        }
+        else if (whichProgram == Which.PYTHON) {
+            System.out.println("Running Python only");
+            System.out.println("Estimated max time : " + estimateMaxTimeString(instanceFiles, configFiles.size()));
+            run(true);
+        }
+        else if (whichProgram == Which.C) {
+            System.out.println("Running C only");
+            System.out.println("Estimated max time : " + estimateMaxTimeString(instanceFiles, configFiles.size()));
+            run(false);
+        }
+
+        System.exit(0);
+    }
+
+    private String estimateMaxTimeString (List<File> instances, int nbConfigs)
+    {
+        int time = 0;
+        for (File instance : instances) {
+            String   fileName   = instance.getName();
+            String[] split      = fileName.split("_");
+            int      nbMachines = Integer.parseInt(split[2]);
+            int      nbJobs     = Integer.parseInt(split[3]);
+
+            time += nbJobs * nbMachines;
+        }
+
+        time *= nbConfigs;
+        time /= 4;
+
+        int nbHours = time / 3600;
+        time -= nbHours * 3600;
+        int nbMinutes = time / 60;
+        time -= nbMinutes * 60;
+        int nbSeconds = time;
+
+        return String.format("%dH %dmin %ds", nbHours, nbMinutes, nbSeconds);
+    }
+
+    private void run (boolean python) throws IOException
+    {
+        System.exit(0);
+        String outputFileName;
+
+        if (python) {
+            exePath = dirPath + dirSep + "tabu_python.py";
+            outputFileName = "py_";
+        }
+        else {
+            outputFileName = "c_";
+
+            exePath = dirPath + dirSep + "bin" + dirSep + "app" + dirSep + "Release" + dirSep + "DI4_ProjectC";
+        }
+
+        if (OS.contains("win")) {
+            if (!python) {
+                exePath += ".exe";
+            }
+            outputFileName += "win";
+        }
+        else {
+            outputFileName += "linux";
+        }
+
+        String outputFilePath = dirPath + dirSep + "stats" + dirSep + outputFileName;
+
+        outputFilePath += outputSuffix;
+
+        // Test
+        //        configsFolderPath += dirSep + "test";
+
+        System.out.println();
+        System.out.println("Testing " + (python ? "Python" : "C") + " program");
+        System.out.println("Exe file : " + exePath);
+        System.out.println("Instances folder : " + dataFilesFolderPath);
+        System.out.println("Output file : " + outputFilePath);
+        System.out.println("Configs folder : " + configsFolderPath);
+        System.out.println();
 
         System.out.println();
         System.out.println("Starting...");
-        System.out.println(nbTurns + " runs for " + testSubList.size() + " instances");
+        System.out.println(nbTurns + " runs for " + instanceFiles.size() + " instances and " + configFiles.size() + " configs");
         System.out.println(nbThreads + " threads");
         System.out.println();
 
         output = new File(outputFilePath);
         File parent = output.getParentFile();
 
-        if (!parent.exists()) {
-            parent.mkdirs();
+        if (!parent.exists() && !parent.mkdirs()) {
+            System.out.println("Failed to create intermediate folders...");
+            System.exit(1);
         }
 
-        if (!output.exists()) {
-            output.createNewFile();
+        if (!output.exists() && !output.createNewFile()) {
+            System.out.println("Failed to create the output file...");
+            System.exit(1);
         }
 
-        testSubList.forEach(input -> {
+        instanceFiles.forEach(input -> {
             writeToOutput(input.getName() + "\n");
-            configsList.forEach(config -> runForInstanceFile(input, config, python));
+            configFiles.forEach(config -> runForInstanceFile(input, config, python));
             writeToOutput("\n");
         });
     }
 
-    public void writeToOutput (String line)
+    private void writeToOutput (String line)
     {
         try {
-            writer = new BufferedWriter(new FileWriter(output, true));
+            BufferedWriter writer = new BufferedWriter(new FileWriter(output, true));
             writer.append(line);
             writer.close();
         }
@@ -204,7 +243,7 @@ public class Main extends Application
     }
 
 
-    public void runForInstanceFile (File file, File config, boolean python)
+    private void runForInstanceFile (File file, File config, boolean python)
     {
         System.out.println("Instance : " + file.getName());
         System.out.println("Config : " + config.getName());
@@ -258,10 +297,7 @@ public class Main extends Application
             System.out.println();
             writeToOutput(line);
         }
-        catch (InterruptedException e) {
-            e.printStackTrace();
-        }
-        catch (ExecutionException e) {
+        catch (Exception e) {
             e.printStackTrace();
         }
     }
@@ -301,7 +337,7 @@ public class Main extends Application
         stage.showAndWait();
     }
 
-    public void askForProjectDir (Stage mainWindows)
+    private void askForProjectDir (Stage mainWindows)
     {
         DirectoryChooser chooser = new DirectoryChooser();
         chooser.setTitle("Open Project Folder");
